@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulación de Torque Industrial</title>
+    <!-- Cargamos Tailwind CSS mediante CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Animación personalizada de Tailwind */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        /* --- LICENCIA (CENTRADA EN EL SUELO) --- */
+        .licencia-bloque { 
+            position: absolute; 
+            bottom: 5px; /* Pegado al borde inferior */
+            left: 0; 
+            width: 100%; 
+            color: #94a3b8; /* Adaptado al fondo oscuro */
+            font-size: 11px; 
+            text-align: center; 
+            z-index: 150; 
+            line-height: 1.8; 
+        }
+        .licencia-bloque a { color: #38bdf8; text-decoration: none; font-weight: bold; }
+        .licencia-bloque a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body class="flex w-full h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
+
+    <!-- BLOQUE IZQUIERDO: Datos y Controles -->
+    <div class="w-[25%] p-3 bg-slate-800 border-r border-slate-700 flex flex-col shadow-xl z-10 overflow-y-auto">
+        <h2 class="text-lg font-bold mb-2 text-yellow-400 border-b border-slate-600 pb-1 whitespace-nowrap">Panel de Control</h2>
+        
+        <div class="flex-grow space-y-3">
+            <div class="bg-slate-700/50 p-3 rounded-lg border border-cyan-500/30">
+                <h3 class="font-semibold text-cyan-400 mb-2 truncate text-base">Trabajador 1 (Izq.)</h3>
+                <ul class="text-sm space-y-1.5 text-slate-200">
+                    <li>Posición (r₁): <span id="w1-r" class="font-mono text-base font-bold text-white"></span></li>
+                    <li>Fuerza (F₁): <span id="w1-f" class="font-mono text-base font-bold text-white"></span></li>
+                    <li>Ángulo (α₁): <span id="w1-angle" class="font-mono text-base font-bold text-white"></span></li>
+                </ul>
+            </div>
+
+            <div class="bg-slate-700/50 p-3 rounded-lg border border-fuchsia-500/30">
+                <h3 class="font-semibold text-fuchsia-400 mb-2 truncate text-base">Trabajador 2 (Dcha.)</h3>
+                <ul class="text-sm space-y-1.5 text-slate-200">
+                    <li>Posición (r₂): <span id="w2-r" class="font-mono text-base font-bold text-white"></span></li>
+                    <li>Fuerza (F₂): <span id="w2-f" class="font-mono text-base font-bold text-white"></span></li>
+                    <li>Ángulo (α₂): <span id="w2-angle" class="font-mono text-base font-bold text-white"></span></li>
+                </ul>
+            </div>
+
+            <div class="bg-yellow-900/20 p-3 rounded-lg border border-yellow-600/40">
+                <h3 class="font-semibold text-yellow-400 mb-2 truncate text-base">A calcular:</h3>
+                <ul class="text-sm space-y-1 text-slate-300">
+                    <li>• Momentos individuales y sentido</li>
+                    <li>• Momento neto y sentido</li>
+                    <li>• Dirección de rotación</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="mt-2 space-y-2">
+            <button id="btn-next-step" onclick="advanceStep()" class="w-full py-2 rounded font-bold text-white bg-green-600 hover:bg-green-500 transition-colors shadow-lg whitespace-nowrap overflow-hidden text-ellipsis text-sm">
+                Paso 1. Identificación
+            </button>
+            <button id="btn-animar" onclick="toggleAnimation()" disabled class="w-full py-2 rounded font-bold text-white bg-slate-700 transition-colors shadow-lg disabled:text-slate-500 disabled:cursor-not-allowed whitespace-nowrap text-sm">
+                Activar Simulación
+            </button>
+            <button onclick="handleNewExercise()" class="w-full py-2 rounded font-bold text-white bg-slate-600 hover:bg-slate-500 transition-colors shadow-lg whitespace-nowrap text-sm">
+                Reiniciar Ejercicio
+            </button>
+        </div>
+    </div>
+
+    <!-- BLOQUE CENTRAL: Simulación visual (Canvas) -->
+    <div class="w-[45%] relative bg-[#0f172a] flex items-center justify-center shadow-inner">
+        <canvas id="sim-canvas" width="800" height="600" class="max-w-full max-h-full object-contain"></canvas>
+        <div id="canvas-overlay"></div>
+        
+        <!-- Licencia y Visitas -->
+        <div class="licencia-bloque">
+            <div style="margin-bottom: 2px;">
+                <img src="https://visitor-badge.laobi.icu/badge?page_id=EAG1964.phychem.lab&left_text=Visitas&left_color=gray&right_color=blue" alt="Visitas" style="display: inline-block;">
+            </div>
+            <p style="margin: 0;">
+                Autor: <strong>EAG1964</strong> | 2026 | 
+                <a href="https://EAG1964.github.io/">Panel Principal</a> | 
+                <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.es" target="_blank">Licencia CC BY-NC-SA 4.0</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- BLOQUE DERECHO: Análisis Dinámico Algebraico -->
+    <div id="analysis-panel" class="w-[30%] p-4 bg-slate-800 border-l border-slate-700 overflow-y-auto z-10 scroll-smooth">
+        <h2 class="text-xl font-bold mb-4 text-yellow-400 border-b border-slate-600 pb-2 whitespace-nowrap">Análisis Dinámico</h2>
+        <div id="analysis-content">
+            <!-- El contenido dinámico se inyectará aquí -->
+        </div>
+    </div>
+
+    <!-- SCRIPT PRINCIPAL: Lógica y Gráficos -->
+    <script>
+        // --- 1. Constantes Físicas e Inicialización ---
+        const WHEEL_RADIUS_M = 0.5;
+        const CANVAS_W = 800;
+        const CANVAS_H = 600;
+        const WHEEL_PX_RADIUS = 260;
+        const ANGLES = [45, 60, 90, 120, 135, 225, 240, 270, 300, 315];
+        const DISTANCES_RATIO = [0.4, 0.6, 0.8, 1.0];
+
+        // Estado Global
+        let state = {
+            data: generateData(),
+            step: 0,
+            isAnimating: false,
+            rotation: 0
+        };
+
+        let tau1 = 0;
+        let tau2 = 0;
+        let tauNet = 0;
+        let animationFrameId = null;
+
+        const canvas = document.getElementById('sim-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- 2. Funciones Lógicas ---
+        function generateData() {
+            const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+            return {
+                w1: {
+                    r: pick(DISTANCES_RATIO) * WHEEL_RADIUS_M,
+                    f: Math.floor(Math.random() * 80) + 20,
+                    angle: pick(ANGLES)
+                },
+                w2: {
+                    r: pick(DISTANCES_RATIO) * WHEEL_RADIUS_M,
+                    f: Math.floor(Math.random() * 80) + 20,
+                    angle: pick(ANGLES)
+                }
+            };
+        }
+
+        function calculatePhysics() {
+            // tau = r * F * sin(theta)
+            // Izquierda: r está en el eje -x, tau1 = -r * F * sin(angle)
+            tau1 = -state.data.w1.r * state.data.w1.f * Math.sin(state.data.w1.angle * Math.PI / 180);
+            // Derecha: r está en el eje +x, tau2 = r * F * sin(angle)
+            tau2 = state.data.w2.r * state.data.w2.f * Math.sin(state.data.w2.angle * Math.PI / 180);
+            tauNet = tau1 + tau2;
+        }
+
+        function handleNewExercise() {
+            state.data = generateData();
+            state.step = 0;
+            state.isAnimating = false;
+            state.rotation = 0;
+            updateApp();
+        }
+
+        function advanceStep() {
+            if (state.step < 3) {
+                state.step++;
+                updateApp();
+            }
+        }
+
+        function setStep(newStep) {
+            state.step = newStep;
+            state.isAnimating = false;
+            updateApp();
+        }
+
+        function toggleAnimation() {
+            if (state.step >= 3) {
+                state.isAnimating = !state.isAnimating;
+                updateApp();
+            }
+        }
+
+        // --- 3. Funciones de Dibujo (Canvas) ---
+        function drawScene() {
+            // 1. Fondo
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+            
+            // Textura
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < CANVAS_W; i += 80) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, CANVAS_H); ctx.stroke();
+            }
+            for (let i = 0; i < CANVAS_H; i += 60) {
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(CANVAS_W, i); ctx.stroke();
+            }
+
+            const cx = CANVAS_W / 2;
+            const cy = CANVAS_H / 2;
+
+            // 2. Tuberías
+            const pipeVGrad = ctx.createLinearGradient(cx - 50, 0, cx + 50, 0);
+            pipeVGrad.addColorStop(0, '#334155'); pipeVGrad.addColorStop(0.5, '#94a3b8'); pipeVGrad.addColorStop(1, '#334155');
+            ctx.fillStyle = pipeVGrad;
+            ctx.fillRect(cx - 50, 0, 100, CANVAS_H);
+
+            const pipeHGrad = ctx.createLinearGradient(0, cy - 40, 0, cy + 40);
+            pipeHGrad.addColorStop(0, '#334155'); pipeHGrad.addColorStop(0.5, '#94a3b8'); pipeHGrad.addColorStop(1, '#334155');
+            ctx.fillStyle = pipeHGrad;
+            ctx.fillRect(0, cy - 40, CANVAS_W, 80);
+
+            // Válvula central
+            const valveGrad = ctx.createRadialGradient(cx, cy, 20, cx, cy, 80);
+            valveGrad.addColorStop(0, '#64748b'); valveGrad.addColorStop(1, '#1e293b');
+            ctx.fillStyle = valveGrad;
+            ctx.beginPath(); ctx.arc(cx, cy, 80, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 5; ctx.stroke();
+
+            // 3. Rueda
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(-state.rotation); 
+
+            // Borde
+            ctx.beginPath();
+            ctx.arc(0, 0, WHEEL_PX_RADIUS, 0, Math.PI * 2);
+            ctx.lineWidth = 25;
+            ctx.strokeStyle = '#b91c1c';
+            ctx.stroke();
+            
+            // Relieve
+            ctx.beginPath(); ctx.arc(0, 0, WHEEL_PX_RADIUS, 0, Math.PI * 2);
+            ctx.lineWidth = 5; ctx.strokeStyle = '#ef4444'; ctx.stroke();
+
+            // Ejes
+            ctx.lineWidth = 15;
+            ctx.strokeStyle = '#991b1b';
+            for (let i = 0; i < 6; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(WHEEL_PX_RADIUS * Math.cos(i * Math.PI / 3), WHEEL_PX_RADIUS * Math.sin(i * Math.PI / 3));
+                ctx.stroke();
+            }
+
+            // Tuerca
+            ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2);
+            ctx.fillStyle = '#cbd5e1'; ctx.fill();
+            ctx.strokeStyle = '#475569'; ctx.lineWidth = 4; ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-15, -15); ctx.lineTo(15, 15); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(15, -15); ctx.lineTo(-15, 15); ctx.stroke();
+
+            ctx.restore();
+
+            // Elementos Interactivos
+            const pxPerMeter = WHEEL_PX_RADIUS / WHEEL_RADIUS_M;
+            const px1 = cx - (state.data.w1.r * pxPerMeter);
+            const px2 = cx + (state.data.w2.r * pxPerMeter);
+
+            if (state.step >= 0) {
+                drawVector(px1, cy, state.data.w1.f, state.data.w1.angle, '#06b6d4', 'F', '1');
+                drawVector(px2, cy, state.data.w2.f, state.data.w2.angle, '#d946ef', 'F', '2');
+            }
+
+            if (state.step >= 2) {
+                // Posiciones fijas en las esquinas para evitar solapamientos con vectores y la rueda
+                const isUp1 = Math.sin(state.data.w1.angle * Math.PI/180) > 0;
+                const xTorque1 = 100;
+                const yTorque1 = isUp1 ? CANVAS_H - 100 : 120; // Opuesto a la dirección de la fuerza
+
+                const isUp2 = Math.sin(state.data.w2.angle * Math.PI/180) > 0;
+                const xTorque2 = CANVAS_W - 100;
+                const yTorque2 = isUp2 ? CANVAS_H - 100 : 120; // Opuesto a la dirección de la fuerza
+                
+                if (Math.abs(tau1) > 0.01) drawTorqueSymbol(xTorque1, yTorque1, tau1 > 0, '1', `: ${tau1 > 0 ? '+' : '-'}`);
+                if (Math.abs(tau2) > 0.01) drawTorqueSymbol(xTorque2, yTorque2, tau2 > 0, '2', `: ${tau2 > 0 ? '+' : '-'}`);
+            }
+
+            if (state.step >= 3) {
+                if (Math.abs(tauNet) > 0.01) {
+                    drawTorqueSymbol(cx, cy, tauNet > 0, 'NETO', '', true);
+                }
+            }
+        }
+
+        // Helpers de dibujo
+        function drawVectorText(ctx, symbol, subscript, restOfText, x, y, color, size, align = 'left') {
+            ctx.save();
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.textBaseline = 'middle';
+
+            // Medir los anchos de cada parte para el posicionamiento correcto
+            ctx.font = `italic bold ${size}px serif`;
+            let symWidth = ctx.measureText(symbol).width;
+            
+            let subWidth = 0;
+            if (subscript) {
+                ctx.font = `bold ${size * 0.55}px sans-serif`;
+                subWidth = ctx.measureText(subscript).width;
+            }
+            
+            let restWidth = 0;
+            if (restOfText) {
+                ctx.font = `bold ${size * 0.9}px monospace`;
+                restWidth = ctx.measureText(restOfText).width;
+            }
+
+            let totalWidth = symWidth + (subscript ? subWidth + 4 : 0) + (restOfText ? restWidth + 4 : 0);
+
+            // Calcular X inicial en función de la alineación
+            let startX = x;
+            if (align === 'right') startX = x - totalWidth - 15;
+            else if (align === 'center') startX = x - totalWidth / 2;
+            else startX = x + 15; // left align
+
+            // 1. Dibujar símbolo principal
+            ctx.textAlign = 'left';
+            ctx.font = `italic bold ${size}px serif`;
+            ctx.fillText(symbol, startX, y);
+            
+            // 2. Dibujar flecha de vector encima (Ajustado para que esté más pegada a la letra)
+            let arrowY = y - size * 0.65;
+            ctx.lineWidth = Math.max(1.5, size * 0.05);
+            ctx.beginPath();
+            ctx.moveTo(startX, arrowY);
+            ctx.lineTo(startX + symWidth, arrowY);
+            ctx.stroke();
+            
+            // Punta de la flecha superior
+            let headlen = size * 0.2;
+            let arrEndX = startX + symWidth;
+            ctx.beginPath();
+            ctx.moveTo(arrEndX, arrowY);
+            ctx.lineTo(arrEndX - headlen, arrowY - headlen*0.5);
+            ctx.lineTo(arrEndX - headlen, arrowY + headlen*0.5);
+            ctx.fill();
+
+            // 3. Dibujar subíndice
+            let currentX = startX + symWidth + 2;
+            if (subscript) {
+                ctx.font = `bold ${size * 0.55}px sans-serif`;
+                ctx.fillText(subscript, currentX, y + size * 0.3);
+                currentX += subWidth + 4;
+            }
+
+            // 4. Dibujar el resto del texto (como el + o -)
+            if (restOfText) {
+                ctx.font = `bold ${size * 0.9}px monospace`;
+                ctx.fillText(restOfText, currentX, y);
+            }
+            ctx.restore();
+        }
+
+        function drawVector(startX, startY, force, angleDeg, color, symbol, subscript) {
+            const length = force * 2.5; // Ampliado para hacer los vectores más visibles
+            const angleRad = angleDeg * Math.PI / 180;
+            const endX = startX + length * Math.cos(angleRad);
+            const endY = startY - length * Math.sin(angleRad);
+
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            
+            ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY); ctx.stroke();
+            
+            const headlen = 18; // Cabeza de flecha principal
+            const drawAngle = Math.atan2(startY - endY, startX - endX);
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(endX + headlen * Math.cos(drawAngle - Math.PI / 6), endY + headlen * Math.sin(drawAngle - Math.PI / 6));
+            ctx.lineTo(endX + headlen * Math.cos(drawAngle + Math.PI / 6), endY + headlen * Math.sin(drawAngle + Math.PI / 6));
+            ctx.fill();
+
+            ctx.beginPath(); ctx.arc(startX, startY, 8, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth=2; ctx.stroke();
+
+            // Alineación inteligente: Si la flecha apunta a la izquierda, dibujamos el texto a la izquierda
+            const textAlignment = Math.cos(angleRad) < 0 ? 'right' : 'left';
+            drawVectorText(ctx, symbol, subscript, '', endX, endY - 10, '#fff', 28, textAlignment);
+            ctx.restore();
+        }
+
+        function drawTorqueSymbol(x, y, isPositive, subscript, restText, isNet = false) {
+            ctx.save();
+            ctx.translate(x, y);
+
+            // Si es el torque neto central, fondo extra oscuro para destacar
+            if (isNet) {
+                ctx.beginPath(); ctx.arc(0, 0, 42, 0, Math.PI*2); // Aumentado
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                ctx.fill();
+            }
+
+            ctx.beginPath(); ctx.arc(0, 0, 36, 0, Math.PI*2); // Círculos de tau más grandes
+            ctx.fillStyle = isPositive ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)';
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = isPositive ? '#22c55e' : '#ef4444'; 
+            ctx.stroke();
+
+            ctx.fillStyle = isPositive ? '#22c55e' : '#ef4444';
+            if (isPositive) {
+                ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill(); // Punto interior más grande
+            } else {
+                ctx.beginPath(); ctx.moveTo(-16, -16); ctx.lineTo(16, 16); ctx.stroke(); // Cruz interior más grande
+                ctx.beginPath(); ctx.moveTo(16, -16); ctx.lineTo(-16, 16); ctx.stroke();
+            }
+            
+            // Tau mucho más grande (tamaño 32), con el texto centrado arriba del símbolo
+            drawVectorText(ctx, 'τ', subscript, restText, 0, -64, '#fff', 32, 'center');
+            ctx.restore();
+        }
+
+        // --- 4. Renderizado del DOM e Interfaz (El corazón de la actualización) ---
+        function updateApp() {
+            calculatePhysics();
+
+            // 4.1 Actualizar Panel Izquierdo (Textos)
+            document.getElementById('w1-r').innerText = state.data.w1.r.toFixed(2) + ' m';
+            document.getElementById('w1-f').innerText = state.data.w1.f + ' N';
+            document.getElementById('w1-angle').innerText = state.data.w1.angle + '°';
+
+            document.getElementById('w2-r').innerText = state.data.w2.r.toFixed(2) + ' m';
+            document.getElementById('w2-f').innerText = state.data.w2.f + ' N';
+            document.getElementById('w2-angle').innerText = state.data.w2.angle + '°';
+
+            // 4.2 Actualizar Clases de Botones
+            const btnNext = document.getElementById('btn-next-step');
+            if (state.step === 0) {
+                btnNext.innerText = "Paso 1. Identificación";
+                btnNext.disabled = false;
+                btnNext.className = "w-full py-2 rounded font-bold text-white bg-green-600 hover:bg-green-500 transition-colors shadow-lg whitespace-nowrap overflow-hidden text-ellipsis";
+            } else if (state.step === 1) {
+                btnNext.innerText = "Paso 2: Momentos";
+                btnNext.disabled = false;
+                btnNext.className = "w-full py-2 rounded font-bold text-white bg-green-600 hover:bg-green-500 transition-colors shadow-lg whitespace-nowrap overflow-hidden text-ellipsis";
+            } else if (state.step === 2) {
+                btnNext.innerText = "Paso 3: Momento Neto";
+                btnNext.disabled = false;
+                btnNext.className = "w-full py-2 rounded font-bold text-white bg-green-600 hover:bg-green-500 transition-colors shadow-lg whitespace-nowrap overflow-hidden text-ellipsis";
+            } else {
+                btnNext.innerText = "Análisis Listo";
+                btnNext.disabled = true;
+                btnNext.className = "w-full py-2 rounded font-bold text-white bg-slate-600 transition-colors shadow-lg disabled:opacity-50 cursor-not-allowed whitespace-nowrap overflow-hidden text-ellipsis";
+            }
+
+            const btnAnimar = document.getElementById('btn-animar');
+            btnAnimar.disabled = state.step < 3;
+            if (state.step < 3) {
+                btnAnimar.innerText = "Activar Simulación";
+                btnAnimar.className = "w-full py-2 rounded font-bold text-white bg-slate-700 transition-colors shadow-lg disabled:text-slate-500 disabled:cursor-not-allowed whitespace-nowrap";
+            } else {
+                btnAnimar.innerText = state.isAnimating ? "Detener Simulación" : "Activar Simulación";
+                btnAnimar.className = `w-full py-2 rounded font-bold text-white transition-colors shadow-lg whitespace-nowrap ${state.isAnimating ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-500'}`;
+            }
+
+            // 4.3 Actualizar Overlay Central
+            const overlay = document.getElementById('canvas-overlay');
+            if (state.step >= 3 && Math.abs(tauNet) > 0.01) {
+                overlay.innerHTML = `<div class="absolute top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full font-bold text-xl uppercase tracking-widest shadow-lg whitespace-nowrap ${tauNet > 0 ? 'bg-green-500/20 text-green-400 border border-green-500' : 'bg-red-500/20 text-red-400 border border-red-500'}">Giro ${tauNet > 0 ? 'Antihorario (CCW)' : 'Horario (CW)'}</div>`;
+            } else if (state.step >= 3 && Math.abs(tauNet) <= 0.01) {
+                overlay.innerHTML = `<div class="absolute top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full font-bold text-xl uppercase tracking-widest shadow-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500 whitespace-nowrap">Sistema en Equilibrio</div>`;
+            } else {
+                overlay.innerHTML = '';
+            }
+
+            // 4.4 Actualizar Panel Derecho (Análisis)
+            const analysis = document.getElementById('analysis-content');
+            let analysisHTML = '';
+
+            if (state.step === 0) {
+                analysisHTML = `<p class="text-slate-500 italic text-sm">Selecciona el "Paso 1" para comenzar el análisis.</p>`;
+            } else {
+                if (state.step >= 1) {
+                    analysisHTML += `
+                        <div class="mb-6 animate-fadeIn">
+                            <h3 class="font-bold text-lg text-white mb-2">1. Identificación</h3>
+                            <p class="text-slate-300 text-sm mb-2">El momento de fuerza (τ) mide la capacidad de una fuerza para producir giro. Se calcula como:</p>
+                            <div class="bg-slate-900 p-3 rounded font-mono text-center text-yellow-300 mb-3 border border-slate-700 shadow-inner">
+                                τ = r · F · sin(α)
+                            </div>
+                            <ul class="text-sm text-slate-300 space-y-2">
+                                <li><span class="text-green-400 font-bold">(+)</span> Giro Antihorario (Hacia afuera ⊙)</li>
+                                <li><span class="text-red-400 font-bold">(-)</span> Giro Horario (Hacia adentro ⊗)</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                if (state.step >= 2) {
+                    const colorClass1 = tau1 > 0 ? 'text-green-400' : (tau1 < 0 ? 'text-red-400' : 'text-slate-400');
+                    const colorClass2 = tau2 > 0 ? 'text-green-400' : (tau2 < 0 ? 'text-red-400' : 'text-slate-400');
+                    
+                    const sense1 = tau1 === 0 ? 'Ninguno' : (tau1 > 0 ? 'Antihorario (Hacia afuera ⊙)' : 'Horario (Hacia adentro ⊗)');
+                    const sense2 = tau2 === 0 ? 'Ninguno' : (tau2 > 0 ? 'Antihorario (Hacia afuera ⊙)' : 'Horario (Hacia adentro ⊗)');
+
+                    analysisHTML += `
+                        <div class="mb-6 animate-fadeIn" style="animation-delay: 0.1s">
+                            <h3 class="font-bold text-lg text-white mb-2">2. Momentos Individuales</h3>
+                            <div class="space-y-4">
+                                <div class="bg-slate-700/30 p-3 rounded border border-cyan-800 overflow-x-auto">
+                                    <p class="text-cyan-300 font-semibold text-sm mb-1">Fuerza 1 (Izquierda):</p>
+                                    <p class="font-mono text-[13px] whitespace-nowrap">τ₁ = -(${state.data.w1.r.toFixed(2)}) · (${state.data.w1.f}) · sin(${state.data.w1.angle}°)</p>
+                                    <p class="font-bold mt-1 ${colorClass1}">τ₁ = ${tau1.toFixed(2)} N·m</p>
+                                    <div class="mt-2 text-xs text-slate-300 border-t border-cyan-800/50 pt-1">
+                                        <p>• <b>Dirección:</b> Perpendicular al plano de la rueda.</p>
+                                        <p>• <b>Sentido:</b> ${sense1}</p>
+                                    </div>
+                                </div>
+                                <div class="bg-slate-700/30 p-3 rounded border border-fuchsia-800 overflow-x-auto">
+                                    <p class="text-fuchsia-300 font-semibold text-sm mb-1">Fuerza 2 (Derecha):</p>
+                                    <p class="font-mono text-[13px] whitespace-nowrap">τ₂ = +(${state.data.w2.r.toFixed(2)}) · (${state.data.w2.f}) · sin(${state.data.w2.angle}°)</p>
+                                    <p class="font-bold mt-1 ${colorClass2}">τ₂ = ${tau2.toFixed(2)} N·m</p>
+                                    <div class="mt-2 text-xs text-slate-300 border-t border-fuchsia-800/50 pt-1">
+                                        <p>• <b>Dirección:</b> Perpendicular al plano de la rueda.</p>
+                                        <p>• <b>Sentido:</b> ${sense2}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                if (state.step >= 3) {
+                    const isEquilibrium = Math.abs(tauNet) < 0.01;
+                    const resultText = isEquilibrium 
+                        ? `<p class="text-yellow-400">⚡ La rueda no rota (Equilibrio).</p>`
+                        : (tauNet > 0 
+                            ? `<p class="text-green-400">🔄 Gira en sentido ANTIHORARIO.<br/><span class="text-xs font-normal text-slate-400">El vector momento apunta hacia afuera del plano.</span></p>`
+                            : `<p class="text-red-400">🔃 Gira en sentido HORARIO.<br/><span class="text-xs font-normal text-slate-400">El vector momento apunta hacia adentro del plano.</span></p>`);
+
+                    analysisHTML += `
+                        <div class="mb-6 animate-fadeIn" style="animation-delay: 0.2s">
+                            <h3 class="font-bold text-lg text-white mb-2">3. Sumatorio Neto</h3>
+                            <p class="text-sm text-slate-300 mb-2">El momento resultante define el comportamiento de la rueda:</p>
+                            <div class="bg-slate-900 p-3 rounded border border-yellow-600/50 overflow-x-auto">
+                                <p class="font-mono text-[13px] whitespace-nowrap mb-1 text-slate-300">Στ = τ₁ + τ₂</p>
+                                <p class="font-mono text-[13px] whitespace-nowrap mb-2 text-slate-300">Στ = (${tau1.toFixed(2)}) + (${tau2.toFixed(2)})</p>
+                                <p class="font-bold text-xl text-yellow-400 mb-3 border-b border-slate-700 pb-2 whitespace-nowrap">Στ = ${tauNet.toFixed(2)} N·m</p>
+                                <div class="mt-2 text-sm font-semibold">${resultText}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            analysis.innerHTML = analysisHTML;
+
+            // Scroll automático al fondo del panel de análisis
+            const analysisPanel = document.getElementById('analysis-panel');
+            setTimeout(() => {
+                analysisPanel.scrollTo({
+                    top: analysisPanel.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 50); 
+
+            // 4.5 Manejo de Animación y Renderizado
+            if (state.isAnimating) {
+                if (!animationFrameId) {
+                    animationLoop();
+                }
+            } else {
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+                // ¡Esta línea es la que dibuja la rueda al inicio y en cada paso estático!
+                drawScene(); 
+            }
+        }
+
+        function animationLoop() {
+            if (!state.isAnimating) return;
+            state.rotation += (tauNet * 0.0005);
+            drawScene();
+            animationFrameId = requestAnimationFrame(animationLoop);
+        }
+
+        // --- 5. Inicialización al cargar la página ---
+        // Garantizamos el renderizado inicial escuchando los eventos correctos
+        function init() {
+            updateApp();
+            // Un pequeño repintado de seguridad para navegadores lentos
+            requestAnimationFrame(updateApp);
+        }
+
+        // Ejecutar cuando el DOM esté listo y cuando los recursos carguen
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+        window.addEventListener('load', init);
+
+    </script>
+</body>
+</html>
